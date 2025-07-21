@@ -1,0 +1,114 @@
+classdef ADCMonitorApp < matlab.apps.AppBase
+    % ADCMonitorApp: Aplicación App Designer para monitoreo ADC de Arduino en tiempo real
+
+    % Properties that correspond to app components
+    properties (Access = public)
+        UIFigure          matlab.ui.Figure
+        UIAxes            matlab.ui.control.UIAxes
+        StartButton       matlab.ui.control.Button
+        StopButton        matlab.ui.control.Button
+        ExportButton      matlab.ui.control.Button
+    end
+
+    properties (Access = private)
+        a                 % Arduino object
+        DataTimer         timer  % Timer para lectura periódica
+        voltajes = []     % Vector de voltajes
+        tiempos = []      % Vector de tiempos
+        t0                % Tiempo inicial
+    end
+
+    methods (Access = private)
+        function startupFcn(app)
+            % Conectar al Arduino (detecta COM automáticamente)
+            app.a = arduino("COM9","Uno");
+            % Configurar timer de muestreo cada 0.1 s
+            app.t0 = tic;
+            app.DataTimer = timer('ExecutionMode','fixedRate', ...
+                                  'Period',0.1, ...
+                                  'TimerFcn',@(~,~) readAndPlot(app));
+        end
+
+        function readAndPlot(app)
+            % Leer voltaje en A0 y actualizar gráfica
+            v = readVoltage(app.a, 'A0');
+            t = toc(app.t0);
+            app.voltajes(end+1) = v;
+            app.tiempos(end+1) = t;
+            plot(app.UIAxes, app.tiempos, app.voltajes, 'LineWidth',2);
+            xlabel(app.UIAxes, 'Tiempo (s)');
+            ylabel(app.UIAxes, 'Voltaje (V)');
+            grid(app.UIAxes, 'on');
+            ylim(app.UIAxes, [0 5]);
+        end
+
+        % Button pushed function: StartButton
+        function StartButtonPushed(app, event)
+            start(app.DataTimer);
+        end
+
+        % Button pushed function: StopButton
+        function StopButtonPushed(app, event)
+            stop(app.DataTimer);
+        end
+
+        % Button pushed function: ExportButton
+ function ExportButtonPushed(app, event)
+            % Guardar datos en un archivo de texto (.txt)
+            [file, path] = uiputfile('data.txt','Guardar datos como');
+            if isequal(file,0), return; end
+            % Crear tabla de datos
+            T = table(app.tiempos', app.voltajes', 'VariableNames',{'Tiempo_s','Voltaje_V'});
+            % Escribir archivo de texto con tabulaciones
+            writetable(T, fullfile(path,file), 'Delimiter', '\t');
+            uialert(app.UIFigure, 'Datos exportados correctamente','Exportación');
+        end
+    end
+
+    methods (Access = public)
+        % Construct app
+        function app = ADCMonitorApp
+            createComponents(app)
+            registerApp(app, app.UIFigure)
+            runStartupFcn(app, @(app)startupFcn(app))
+        end
+
+        % Code that executes before app deletion
+        function delete(app)
+            if isvalid(app.DataTimer)
+                stop(app.DataTimer);
+                delete(app.DataTimer);
+            end
+            if ~isempty(app.a)
+                clear app.a;
+            end
+            delete(app.UIFigure)
+        end
+    end
+
+    methods (Access = private)
+        % Create UIFigure and components
+        function createComponents(app)
+            % Create UIFigure
+            app.UIFigure = uifigure('Position',[100 100 600 400], 'Name', 'Monitor ADC');
+
+            % Create UIAxes
+            app.UIAxes = uiaxes(app.UIFigure, 'Position',[50 100 500 250]);
+
+            % Create StartButton
+            app.StartButton = uibutton(app.UIFigure, 'push', ...
+                'Text', 'Iniciar', 'Position',[50 30 100 40], ...
+                'ButtonPushedFcn', @(btn,event) StartButtonPushed(app,event));
+
+            % Create StopButton
+            app.StopButton = uibutton(app.UIFigure, 'push', ...
+                'Text', 'Detener', 'Position',[170 30 100 40], ...
+                'ButtonPushedFcn', @(btn,event) StopButtonPushed(app,event));
+
+            % Create ExportButton
+            app.ExportButton = uibutton(app.UIFigure, 'push', ...
+                'Text', 'Exportar TXT', 'Position',[290 30 120 40], ...
+                'ButtonPushedFcn', @(btn,event) ExportButtonPushed(app,event));
+        end
+    end
+end
